@@ -148,8 +148,8 @@
         </div>
         <p>
           昇腾 Ascend C 自定义 <code>Tanh</code> 算子，tiling 模板编程：host 侧推导并下发 tiling 参数，
-          kernel 侧用纯 POD 结构体接收。已在 <strong>910B + CANN 9.0.0</strong> 上端到端验证，
-          精度判据 <code>1e-3</code> 通过。
+          kernel 侧用纯 POD 结构体接收。在 <strong>910B + CANN 9.0.0</strong> 上跑通过精度判据
+          <code>1e-3</code> 的端到端校验。
         </p>
         <p>
           关键取舍是中间量必须升到 <code>fp32</code>：<code>fp16</code> 在 <code>x≈1</code> 附近的分辨率约
@@ -158,7 +158,8 @@
         </p>
         <p class="fine">
           算子实现（<code>op_host/</code>、<code>op_kernel/</code>）为本仓库新增；<code>AclNNInvocation/</code>
-          与 <code>framework/</code> 为昇腾脚手架自带，未作修改。
+          与 <code>framework/</code> 为昇腾脚手架自带，未作修改。NPU 上那次运行没有随仓库保留 ——
+          仓库内可复现的验证是一份不需要 NPU 与 CANN 的离线自测脚本。
         </p>
       </li>
 
@@ -223,7 +224,7 @@
 
     <dl class="repos">
       <dt><a href="https://github.com/ruzhai/TanhCustom">TanhCustom</a></dt>
-      <dd>昇腾 Ascend C 自定义 Tanh 算子 · 910B + CANN 9.0.0 端到端验证</dd>
+      <dd>昇腾 Ascend C 自定义 Tanh 算子 · 910B + CANN 9.0.0 上跑通端到端精度校验</dd>
 
       <dt><a href="https://github.com/ruzhai/intelligent-computing-systems-labs">intelligent-computing-systems-labs</a></dt>
       <dd>GQA 的纯 NumPy 从零实现，官方测试 8/8 通过</dd>
