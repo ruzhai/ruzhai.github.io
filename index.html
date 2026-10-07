@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ruzhai — 从昇腾算子到大模型编排</title>
+<meta name="description" content="从昇腾 NPU 上的 Ascend C 算子实现，到基于 LangGraph 的大模型智能体编排。">
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1f2328;
+    --muted: #59636e;
+    --line: #d1d9e0;
+    --accent: #0969da;
+    --card: #f6f8fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9198a1;
+      --line: #30363d;
+      --accent: #4493f8;
+      --card: #151b23;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 4rem 1.5rem 6rem;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC",
+                 "PingFang SC", "Microsoft YaHei", Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  main { max-width: 44rem; margin: 0 auto; }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  header { padding-bottom: 2.5rem; border-bottom: 1px solid var(--line); }
+
+  h1 {
+    margin: 0;
+    font-size: 2rem;
+    letter-spacing: -0.01em;
+  }
+
+  .tags {
+    margin: 0.5rem 0 1.75rem;
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+
+  .lede { margin: 0; font-size: 1.0625rem; }
+  .lede strong { font-weight: 600; }
+
+  section { padding-top: 3rem; }
+
+  h2 {
+    margin: 0 0 1.25rem;
+    font-size: 1.125rem;
+    font-weight: 600;
+  }
+
+  .note {
+    margin: -0.5rem 0 1.5rem;
+    color: var(--muted);
+    font-size: 0.9375rem;
+  }
+
+  ul.cards { margin: 0; padding: 0; list-style: none; }
+
+  ul.cards > li {
+    padding: 1.125rem 1.25rem;
+    margin-bottom: 0.75rem;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+
+  .card-title { font-weight: 600; }
+
+  .card-title .kind {
+    margin-left: 0.5rem;
+    padding: 0.1rem 0.45rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 400;
+    vertical-align: 0.08em;
+  }
+
+  ul.cards p { margin: 0.5rem 0 0; font-size: 0.9375rem; }
+
+  .fine {
+    margin-top: 0.625rem;
+    padding-top: 0.625rem;
+    border-top: 1px dashed var(--line);
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+
+  dl.repos { margin: 0; }
+
+  dl.repos dt { margin-top: 1rem; font-weight: 600; font-size: 0.9375rem; }
+  dl.repos dd { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.9375rem; }
+
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.75rem;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+
+  footer p { margin: 0.35rem 0; }
+</style>
+</head>
+<body>
+<main>
+
+  <header>
+    <h1>ruzhai</h1>
+    <p class="tags">Ascend C / CANN · LangGraph / 多智能体 · Python · TypeScript</p>
+    <p class="lede">
+      我在把一条链路从头串到尾：<strong>从昇腾 NPU 上的算子实现，到大模型智能体的编排。</strong>
+      每一层都想自己上手写过一遍，而不是只用别人的封装。
+    </p>
+  </header>
+
+  <section>
+    <h2>一、底层实现 —— 算子与模型组件</h2>
+
+    <ul class="cards">
+
+      <li>
+        <div class="card-title">
+          <a href="https://github.com/ruzhai/TanhCustom">TanhCustom</a>
+          <span class="kind">算子</span>
+        </div>
+        <p>
+          昇腾 Ascend C 自定义 <code>Tanh</code> 算子，tiling 模板编程：host 侧推导并下发 tiling 参数，
+          kernel 侧用纯 POD 结构体接收。已在 <strong>910B + CANN 9.0.0</strong> 上端到端验证，
+          精度判据 <code>1e-3</code> 通过。
+        </p>
+        <p>
+          关键取舍是中间量必须升到 <code>fp32</code>：<code>fp16</code> 在 <code>x≈1</code> 附近的分辨率约
+          <code>9.77e-4</code>，直接算 <code>e^x − e^-x</code> 会把两个已被舍入成同一个数的量相减、
+          小值被抹成 0 —— 而绝对误差恰好小到容差判据抓不住。
+        </p>
+        <p class="fine">
+          算子实现（<code>op_host/</code>、<code>op_kernel/</code>）为本仓库新增；<code>AclNNInvocation/</code>
+          与 <code>framework/</code> 为昇腾脚手架自带，未作修改。
+        </p>
+      </li>
+
+      <li>
+        <div class="card-title">
+          <a href="https://github.com/ruzhai/intelligent-computing-systems-labs">智能计算系统课程实验</a>
+          <span class="kind">模型组件</span>
+        </div>
+        <p>
+          不用深度学习框架，纯 NumPy 把 GQA（分组查询注意力）从零写一遍：Python 循环版与
+          <code>np.repeat</code> 向量化版。官方测试 8/8 通过。
+        </p>
+        <p>
+          基准结论是个反直觉的结果 —— <strong>向量化并不稳赢</strong>：<code>np.repeat</code> 会实际复制 K/V，
+          分组大时拷贝与带宽开销反超它省下的循环开销。
+        </p>
+      </li>
+
+    </ul>
+  </section>
+
+  <section>
+    <h2>二、大模型编排 —— LangGraph 与多智能体</h2>
+
+    <ul class="cards">
+
+      <li>
+        <div class="card-title">
+          <a href="https://github.com/mayuri0v0/Shiori">Shiori</a>
+          <span class="kind">上游贡献</span>
+        </div>
+        <p>
+          基于 LangChain + LangGraph 的桌面任务 agent。我在上游合并了 <strong>3 个 PR</strong>
+          （合计 <code>+2570 / −161</code>）：界面重构、学术文献检索能力恢复 + 多层安全防护机制。
+        </p>
+        <p class="fine">
+          在该仓库的贡献者里排第一（18 commits，原作者 10）。
+          <a href="https://github.com/mayuri0v0/Shiori/pulls?q=is%3Apr+author%3Aruzhai">合并记录 →</a>
+        </p>
+      </li>
+
+      <li>
+        <div class="card-title">
+          <a href="https://github.com/ruzhai/werewolfparty">Werewolf Party · AI 狼人杀</a>
+          <span class="kind">自研</span>
+        </div>
+        <p>
+          中文优先的 AI 狼人杀桌面应用：你是唯一的真人玩家，和 7 个由大模型驱动的 AI 跑完整 8 人局
+          （2 狼 + 预言家 + 女巫 + 猎人 + 3 村民，含警长竞选与警徽移交）。
+        </p>
+        <p>
+          5 家厂商、11 个模型条目收敛在 3 个适配器下；整局是一个显式状态机，状态全部落在数据库里，
+          可以中断续跑。
+        </p>
+      </li>
+
+    </ul>
+  </section>
+
+  <section>
+    <h2>公开可见的</h2>
+
+    <dl class="repos">
+      <dt><a href="https://github.com/ruzhai/TanhCustom">TanhCustom</a></dt>
+      <dd>昇腾 Ascend C 自定义 Tanh 算子 · 910B + CANN 9.0.0 端到端验证</dd>
+
+      <dt><a href="https://github.com/ruzhai/intelligent-computing-systems-labs">intelligent-computing-systems-labs</a></dt>
+      <dd>GQA 的纯 NumPy 从零实现，官方测试 8/8 通过</dd>
+
+      <dt><a href="https://github.com/ruzhai/werewolfparty">werewolfparty</a></dt>
+      <dd>中文 AI 狼人杀桌面应用 · 7 个 LLM Bot · 5 家厂商统一适配层</dd>
+
+      <dt><a href="https://github.com/ruzhai/NJU-SICP2024FALL">NJU-SICP2024FALL</a></dt>
+      <dd>SICP 课程作业与实验：hw01–hw07、hw10 + lab00/01/05/10（Python 为主，附官方 <code>.ok</code> 自动评分）</dd>
+
+      <dt><a href="https://github.com/mayuri0v0/Shiori">mayuri0v0/Shiori</a></dt>
+      <dd>3 个已合并 PR —— 目前最实的一块对外贡献</dd>
+
+      <dt><a href="https://github.com/Frank-nju/ailaw_frontend">Frank-nju/ailaw_frontend</a></dt>
+      <dd>1 个已合并 PR —— 用户隔离 + Codespaces / Render 部署支持</dd>
+
+      <dt><a href="https://github.com/search?q=author%3Aruzhai+type%3Apr&amp;type=pullrequests">我的 PR 汇总</a></dt>
+      <dd>向 4 个上游仓库提过 7 个 PR，其中 4 个已合并</dd>
+    </dl>
+  </section>
+
+  <footer>
+    <p>本站由 GitHub Pages 托管，源码在 <a href="https://github.com/ruzhai/ruzhai.github.io">ruzhai.github.io</a>。</p>
+    <p>页面上每条说法的依据都在对应仓库的 README 里 —— 构建命令、测试输出、以及实现与脚手架的分界。</p>
+  </footer>
+
+</main>
+</body>
+</html>
